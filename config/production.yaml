@@ -1,0 +1,8 @@
+# Production Mode Configuration Overrides
+# These settings are applied when running in production mode
+
+# Note: Most production schedules are already defined in switchboard.yaml
+# This file can be used for production-specific overrides
+
+# Example: You might want different heartbeat intervals in production
+# heartbeatIntervalMs: 30000  # 30 seconds for more responsive syncing

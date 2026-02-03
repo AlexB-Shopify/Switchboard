@@ -1,0 +1,11 @@
+# Demo Mode Configuration Overrides
+# These settings are applied when running in demo mode
+# Schedules are compressed for faster demonstration
+
+# Note: Most demo schedules are already defined in switchboard.yaml
+# This file can be used for additional demo-specific overrides
+
+# Example: You could disable certain data objects for demos
+# dataObjects:
+#   discounts:
+#     enabled: true  # Enable discounts for demo

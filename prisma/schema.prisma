@@ -1,0 +1,71 @@
+// Switchboard Database Schema
+// SQLite database for tracking sync state, ID mappings, and job history
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Tracks the sync state for each data object type
+model SyncState {
+  id            String    @id @default(uuid())
+  dataObject    String    @unique // e.g., "products", "inventory"
+  lastSyncAt    DateTime?
+  lastSuccessAt DateTime?
+  cursor        String? // For pagination/cursor-based sync
+  status        String    @default("idle") // idle, running, failed
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+// Maps external IDs (from ERP/Sheet) to Shopify IDs
+model IdMapping {
+  id         String   @id @default(uuid())
+  dataObject String
+  externalId String // ID from ERP/Sheet (e.g., SKU)
+  shopifyId  String // Shopify GID
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([dataObject, externalId])
+  @@unique([dataObject, shopifyId])
+  @@index([dataObject])
+}
+
+// Logs each sync job for debugging and monitoring
+model JobLog {
+  id             String    @id @default(uuid())
+  dataObject     String
+  jobType        String // sync, webhook
+  status         String // queued, running, completed, failed
+  itemsProcessed Int       @default(0)
+  itemsSucceeded Int       @default(0)
+  itemsFailed    Int       @default(0)
+  errorMessage   String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([dataObject])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// Stores webhook events for async processing
+model WebhookEvent {
+  id          String    @id @default(uuid())
+  topic       String
+  shopifyId   String
+  payload     String // JSON payload
+  processed   Boolean   @default(false)
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([processed])
+  @@index([topic])
+  @@index([createdAt])
+}

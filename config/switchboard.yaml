@@ -1,0 +1,143 @@
+# Switchboard Configuration
+# This file controls the sync behavior for each data object
+
+# Global settings
+mode: demo  # 'demo' or 'production' - can be overridden by CLI flag
+webhookPort: 3000
+heartbeatIntervalMs: 60000  # 1 minute
+
+# Google Sheets configuration
+# The spreadsheet ID can be found in the URL of your Google Sheet
+# Example: https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit
+googleSheets:
+  spreadsheetId: ""  # Set via GOOGLE_SHEETS_SPREADSHEET_ID env var
+
+# Per-object configuration
+dataObjects:
+  # Products - synced from ERP to Shopify
+  products:
+    enabled: true
+    direction: to_shopify      # ERP is source of truth
+    trigger: cron
+    schedule:
+      production: "*/15 * * * *"  # Every 15 minutes
+      demo: "*/1 * * * *"         # Every 1 minute
+    mode: sync                    # 'sync' or 'overwrite'
+    sheetName: "Products"
+    externalIdField: "sku"        # Column in sheet used as external ID
+    existingDataBehavior: ignore  # 'ignore', 'adopt', or 'adopt_and_archive'
+    settings:
+      includeVariants: true
+      includeImages: false
+
+  # Inventory - synced from ERP to Shopify (depends on products)
+  inventory:
+    enabled: true
+    direction: to_shopify
+    trigger: cron
+    schedule:
+      production: "*/5 * * * *"   # Every 5 minutes
+      demo: "*/1 * * * *"         # Every 1 minute
+    mode: sync
+    sheetName: "Inventory"
+    externalIdField: "sku"
+    existingDataBehavior: ignore
+    dependencies: [products]      # Must run after products
+
+  # Orders - synced from Shopify to ERP via webhooks
+  orders:
+    enabled: true
+    direction: from_shopify       # Shopify is source of truth
+    trigger: webhook
+    webhookTopics:
+      - "orders/create"
+      - "orders/updated"
+    mode: sync
+    sheetName: "Orders"
+    settings:
+      includeLineItems: true
+      includeCustomer: true
+
+  # Fulfillments - synced from ERP to Shopify (depends on orders)
+  fulfillments:
+    enabled: true
+    direction: to_shopify         # ERP triggers fulfillments
+    trigger: cron
+    schedule:
+      production: "*/10 * * * *"  # Every 10 minutes
+      demo: "*/1 * * * *"         # Every 1 minute
+    mode: sync
+    sheetName: "Fulfillments"
+    externalIdField: "order_number"
+    dependencies: [orders]
+    settings:
+      notifyCustomer: true
+
+  # Catalogs - synced from ERP to Shopify
+  catalogs:
+    enabled: true
+    direction: to_shopify
+    trigger: cron
+    schedule:
+      production: "0 * * * *"     # Hourly
+      demo: "*/2 * * * *"         # Every 2 minutes
+    mode: sync
+    sheetName: "Catalogs"
+    externalIdField: "name"
+    settings:
+      createIfNotExists: true
+      matchMarketByName: true     # Match 'market' column to Shopify markets
+
+  # Metaobjects (Content) - synced from ERP to Shopify
+  metaobjects:
+    enabled: true
+    direction: to_shopify
+    trigger: cron
+    schedule:
+      production: "*/30 * * * *"  # Every 30 minutes
+      demo: "*/1 * * * *"         # Every 1 minute
+    mode: sync
+    sheetName: "Content"
+    externalIdField: "handle"
+    settings:
+      definitionHandle: "custom_content"  # Metaobject definition to use
+
+  # Discounts - synced from ERP to Shopify (disabled by default)
+  discounts:
+    enabled: false
+    direction: to_shopify
+    trigger: cron
+    schedule:
+      production: "0 */6 * * *"   # Every 6 hours
+      demo: "*/5 * * * *"         # Every 5 minutes
+    mode: overwrite
+    sheetName: "Discounts"
+    externalIdField: "code"
+    settings:
+      discountType: "code"        # 'code' or 'automatic'
+
+  # Gift Cards - bidirectional sync (disabled by default)
+  giftCards:
+    enabled: false
+    direction: bidirectional      # Can be created in either system
+    trigger: cron
+    schedule:
+      production: "*/30 * * * *"  # Every 30 minutes
+      demo: "*/2 * * * *"         # Every 2 minutes
+    mode: sync
+    sheetName: "GiftCards"
+    externalIdField: "code"
+
+  # Customers - synced from Shopify to ERP via webhooks
+  customers:
+    enabled: true
+    direction: from_shopify
+    trigger: webhook
+    webhookTopics:
+      - "customers/create"
+      - "customers/update"
+    mode: sync
+    sheetName: "Customers"
+    settings:
+      includeAddresses: true
+      includeMetafields: false
