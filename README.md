@@ -41,6 +41,15 @@ cp .env.example .env
    - Configure required scopes and install on your store
    - Copy Client ID and Client Secret to `.env`
 
+Scopes to include:
+   ```bash
+read_customers,write_customers,read_price_rules,write_price_rules,read_discounts,write_discounts,read_fulfillments,write_fulfillments,read_gift_cards,write_gift_cards,write_inventory,read_inventory,write_locations,read_locations,read_markets,write_markets,read_metaobjects,write_metaobjects,read_orders,write_orders,read_products,write_products
+```
+
+Creating a tunnel:
+- Utilize an appropriate tunneling software to create a local tunnel that the server can use to route webhooks to (i.e. Dev, Ngrok, Cloudflare)
+- Add this created URL to your .env file as WEBHOOK_BASE_URL
+
 2. **Google Sheets Setup**
    - Create a spreadsheet following the template in `erp-template/README.md`
    - Set up authentication (see Google Sheets Authentication section)

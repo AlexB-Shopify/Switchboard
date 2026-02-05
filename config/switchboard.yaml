@@ -24,7 +24,7 @@ dataObjects:
       demo: "*/1 * * * *"         # Every 1 minute
     mode: sync                    # 'sync' or 'overwrite'
     sheetName: "Products"
-    externalIdField: "sku"        # Column in sheet used as external ID
+    externalIdField: "handle"     # Handle is always present; SKU is often empty
     existingDataBehavior: ignore  # 'ignore', 'adopt', or 'adopt_and_archive'
     settings:
       includeVariants: true
@@ -40,7 +40,7 @@ dataObjects:
       demo: "*/1 * * * *"         # Every 1 minute
     mode: sync
     sheetName: "Inventory"
-    externalIdField: "sku"
+    externalIdField: "handle"     # Matches product handle + option values
     existingDataBehavior: ignore
     dependencies: [products]      # Must run after products
 

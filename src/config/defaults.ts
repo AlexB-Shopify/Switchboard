@@ -19,7 +19,7 @@ export const defaultDataObjects: DataObjectsConfig = {
     },
     mode: 'sync',
     sheetName: 'Products',
-    externalIdField: 'sku',
+    externalIdField: 'handle',  // Handle is always present; SKU is often empty
     existingDataBehavior: 'ignore',
     settings: {
       includeVariants: true,
@@ -37,7 +37,7 @@ export const defaultDataObjects: DataObjectsConfig = {
     },
     mode: 'sync',
     sheetName: 'Inventory',
-    externalIdField: 'sku',
+    externalIdField: 'handle',  // Matches product handle; uses option values for variant matching
     existingDataBehavior: 'ignore',
     dependencies: ['products'],
     settings: {

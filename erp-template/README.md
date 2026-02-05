@@ -9,30 +9,81 @@ This document describes the expected structure for your Google Sheets "ERP" spre
 3. Copy the Spreadsheet ID from the URL (the long string between `/d/` and `/edit`)
 4. Set the `GOOGLE_SHEETS_SPREADSHEET_ID` environment variable
 
+## Compatibility
+
+Switchboard supports **two formats** for most sheets:
+
+1. **Simplified ERP Format** - Minimal columns for easy manual editing
+2. **Shopify Export Format** - Direct import of Shopify CSV exports
+
+You can mix formats or use Shopify exports directly as your data source.
+
+---
+
 ## Sheet Structures
 
 ### Products Sheet
 
 **Sheet Name:** `Products`
 
+Switchboard supports multi-variant products. Each variant is a separate row, grouped by `Handle`.
+
+#### Simplified ERP Format
+
 | Column | Description | Required |
 |--------|-------------|----------|
-| sku | Unique SKU identifier | Yes |
+| handle | URL-friendly product identifier | Yes |
+| sku | Unique SKU identifier | No |
 | title | Product title | Yes |
 | description | Product description (HTML supported) | No |
 | vendor | Product vendor | No |
 | product_type | Product type/category | No |
 | tags | Comma-separated tags | No |
 | status | `active`, `draft`, or `archived` | No (default: active) |
-| price | Product price | No (default: 0.00) |
+| price | Variant price | No (default: 0.00) |
+| image_url | Product image URL | No |
+| option1_name | First option name (e.g., "Size") | No |
+| option1_value | First option value (e.g., "Small") | No |
 | shopify_id | Shopify product ID (auto-filled) | No |
 
-**Example:**
+#### Shopify Export Format (Full Compatibility)
+
+The following columns from Shopify product exports are supported:
+
+| Column | Description |
+|--------|-------------|
+| Handle | Product handle (URL-friendly identifier) |
+| Title | Product title |
+| Body (HTML) | Product description |
+| Vendor | Product vendor |
+| Type | Product type |
+| Tags | Comma-separated tags |
+| Published | Whether product is published |
+| Option1 Name | First option name (e.g., "Color") |
+| Option1 Value | First option value (e.g., "Red") |
+| Option2 Name | Second option name |
+| Option2 Value | Second option value |
+| Option3 Name | Third option name |
+| Option3 Value | Third option value |
+| Variant SKU | SKU for this variant |
+| Variant Price | Price for this variant |
+| Variant Compare At Price | Compare at price |
+| Variant Grams | Weight in grams |
+| Variant Weight Unit | Weight unit (kg, lb, etc.) |
+| Variant Barcode | Barcode |
+| Image Src | Main product image URL |
+| Variant Image | Variant-specific image URL |
+| Status | Product status (active/draft/archived) |
+
+**Multi-Variant Example:**
 ```
-sku,title,description,vendor,product_type,tags,status,price,shopify_id
-SKU-001,Blue Widget,A beautiful blue widget,WidgetCo,Widgets,"blue,widget",active,29.99,
-SKU-002,Red Widget,A vibrant red widget,WidgetCo,Widgets,"red,widget",active,29.99,
+Handle,Title,Body (HTML),Vendor,Option1 Name,Option1 Value,Variant Price,Status
+clay-vase,Clay Vase,"<p>Beautiful handcrafted vase</p>",Omni,Size,Small,449.00,active
+clay-vase,,,,Size,Medium,549.00,
+clay-vase,,,,Size,Large,649.00,
 ```
+
+Note: For multi-variant products, only the first row needs product-level data (Title, Description, etc.). Subsequent rows for the same Handle only need variant-specific data.
 
 ---
 
@@ -40,19 +91,42 @@ SKU-002,Red Widget,A vibrant red widget,WidgetCo,Widgets,"red,widget",active,29.
 
 **Sheet Name:** `Inventory`
 
+#### Simplified ERP Format
+
 | Column | Description | Required |
 |--------|-------------|----------|
-| sku | Product SKU (must match Products sheet) | Yes |
-| location | Location name (optional, uses default if empty) | No |
-| quantity | Inventory quantity | Yes |
+| handle | Product handle | Yes (or sku) |
+| sku | Product SKU | Yes (or handle) |
+| option1_value | Variant option value for matching | No |
+| location | Location name | No (uses default) |
+| quantity | Inventory quantity to set | Yes |
 | shopify_id | Shopify inventory item ID (auto-filled) | No |
+
+#### Shopify Export Format
+
+| Column | Description |
+|--------|-------------|
+| Handle | Product handle |
+| Title | Product title |
+| Option1 Name | Option name (e.g., "Size") |
+| Option1 Value | Option value (e.g., "Small") |
+| Option2 Name/Value | Second option |
+| Option3 Name/Value | Third option |
+| SKU | Variant SKU |
+| HS Code | Harmonized System code |
+| COO | Country of Origin |
+| Location | Location name |
+| Bin name | Bin/shelf location |
+| On hand (new) | Quantity to set (editable field) |
+| Available (not editable) | Available quantity (read-only) |
+| Committed (not editable) | Committed quantity (read-only) |
 
 **Example:**
 ```
-sku,location,quantity,shopify_id
-SKU-001,Main Warehouse,100,
-SKU-001,Retail Store,25,
-SKU-002,Main Warehouse,50,
+Handle,Title,Option1 Name,Option1 Value,SKU,Location,On hand (new)
+clay-vase,Clay Vase,Size,Small,,Main Warehouse,46
+clay-vase,Clay Vase,Size,Medium,,Main Warehouse,7
+clay-vase,Clay Vase,Size,Large,,Main Warehouse,159
 ```
 
 ---
@@ -63,17 +137,39 @@ SKU-002,Main Warehouse,50,
 
 This sheet is **read-only** - data flows FROM Shopify TO the sheet via webhooks.
 
+Each line item is written as a separate row (matching Shopify export format).
+
 | Column | Description |
 |--------|-------------|
-| order_number | Shopify order number (e.g., #1001) |
-| email | Customer email |
-| total | Order total with currency |
-| financial_status | Payment status |
-| fulfillment_status | Fulfillment status |
-| created_at | Order creation timestamp |
-| line_items | Formatted line items |
-| customer_name | Customer name |
-| shopify_id | Shopify order GID |
+| Name | Order name (e.g., #1001) |
+| Email | Customer email |
+| Financial Status | Payment status |
+| Fulfillment Status | Fulfillment status |
+| Currency | Order currency |
+| Subtotal | Subtotal amount |
+| Shipping | Shipping amount |
+| Taxes | Tax amount |
+| Total | Total amount |
+| Discount Code | Applied discount code |
+| Created at | Order creation timestamp |
+| Lineitem quantity | Quantity of this line item |
+| Lineitem name | Product name with variant |
+| Lineitem price | Price of this line item |
+| Lineitem sku | SKU of this line item |
+| Lineitem fulfillment status | Fulfillment status of line item |
+| Billing Name | Billing address name |
+| Billing Address1 | Billing street address |
+| Billing City | Billing city |
+| Billing Province | Billing state/province |
+| Billing Country | Billing country |
+| Shipping Name | Shipping address name |
+| Shipping Address1 | Shipping street address |
+| Shipping City | Shipping city |
+| Shipping Province | Shipping state/province |
+| Shipping Country | Shipping country |
+| Vendor | Line item vendor |
+| Id | Shopify order ID |
+| Tags | Order tags |
 
 ---
 
@@ -95,11 +191,100 @@ This sheet is **read-only** - data flows FROM Shopify TO the sheet via webhooks.
 - `synced` - Successfully synced to Shopify
 - `error` - Failed to sync
 
-**Example:**
+---
+
+### Discounts Sheet
+
+**Sheet Name:** `Discounts`
+
+#### Simplified ERP Format
+
+| Column | Description | Required |
+|--------|-------------|----------|
+| code | Discount code | Yes |
+| title | Discount title | No |
+| type | `percentage` or `fixed` | Yes |
+| value | Discount value | Yes |
+| starts_at | Start date (ISO format) | Yes |
+| ends_at | End date (ISO format) | No |
+| shopify_id | Shopify discount ID (auto-filled) | No |
+
+#### Shopify Export Format
+
+| Column | Description |
+|--------|-------------|
+| Name | Discount code |
+| Value | Discount value (negative, e.g., -20.0) |
+| Value Type | `percentage` or `fixed_amount` |
+| Type | Discount type |
+| Discount Class | `product`, `order`, etc. |
+| Start | Start date |
+| End | End date |
+| Status | Active/Inactive |
+
+**Example (ERP Format):**
 ```
-order_number,tracking_number,tracking_company,status,shopify_id
-#1001,1Z999AA10123456784,UPS,ready,
-#1002,9400111899223456789012,USPS,ready,
+code,title,type,value,starts_at,ends_at,shopify_id
+SUMMER20,Summer Sale,percentage,20,2026-06-01T00:00:00Z,2026-08-31T23:59:59Z,
+```
+
+---
+
+### GiftCards Sheet
+
+**Sheet Name:** `GiftCards`
+
+**IMPORTANT: Gift Card Code Handling**
+
+- **To CREATE new gift cards**: Provide the FULL code in the `code` column, OR leave it blank and Shopify will generate one (the generated code will be written back to your sheet!)
+- **Shopify exports** only provide `Last Characters` (last 4 digits) - these cards are **READ-ONLY** for balance sync purposes since the full code cannot be recovered
+- Gift card codes are typically 16-20 characters long
+
+#### Simplified ERP Format (for creating new cards)
+
+| Column | Description | Required |
+|--------|-------------|----------|
+| code | Full gift card code (16+ chars, or leave blank to auto-generate) | No |
+| initial_value | Initial gift card value | Yes |
+| balance | Current balance (auto-updated from Shopify) | No |
+| note | Internal note | No |
+| shopify_id | Shopify gift card ID (auto-filled) | No |
+
+**Example (Creating new cards):**
+```
+code,initial_value,balance,note,shopify_id
+MYCODE123456789A,50.00,,Holiday promo,
+,100.00,,VIP customer (code will be auto-generated),
+```
+
+After sync, the auto-generated codes are written back to the sheet so you have a record.
+
+#### Shopify Export Format (read-only for balance sync)
+
+| Column | Description |
+|--------|-------------|
+| Id | Shopify gift card ID (numeric) |
+| Last Characters | Last 4 characters of code (NOT usable for creation) |
+| Customer Name | Customer name |
+| Email | Customer email |
+| Recipient Name | Recipient name |
+| Recipient Email | Recipient email |
+| Order Name | Associated order |
+| Date Issued | Issue date |
+| Send At | Scheduled send date |
+| Expires On | Expiration date |
+| Initial Balance | Initial value |
+| Current Balance | Current balance |
+| Currency | Currency code |
+| Expired? | Whether card is expired |
+| Enabled? | Whether card is enabled |
+| Note | Internal note |
+| Message | Gift card message |
+
+**Example (Shopify Export - balances sync down, but cannot create new cards):**
+```
+Id,Last Characters,Initial Balance,Current Balance,Currency,Note
+669632561443,3rqb,100.00,85.00,CAD,""
 ```
 
 ---
@@ -115,77 +300,49 @@ order_number,tracking_number,tracking_company,status,shopify_id
 | product_skus | Comma-separated product SKUs | No |
 | shopify_id | Shopify catalog ID (auto-filled) | No |
 
-**Example:**
-```
-name,market,product_skus,shopify_id
-Summer Collection,US,SKU-001,SKU-002,
-B2B Catalog,Wholesale,"SKU-001,SKU-002,SKU-003",
-```
-
 ---
 
 ### Content Sheet (Metaobjects)
 
 **Sheet Name:** `Content`
 
-Dynamic columns based on your metaobject definition.
+**IMPORTANT: Metaobject definitions must be pre-created in Shopify!**
+
+Before using this sheet, you must:
+1. Go to **Shopify Admin** → **Settings** → **Custom data** → **Metaobjects**
+2. Create a new metaobject definition with:
+   - A **type handle** (e.g., `brand_story`, `faq_item`, `testimonial`)
+   - **Fields** with their types (single_line_text, multi_line_text, rich_text, url, etc.)
+3. Note the field **keys** - these become your column names
+
+Your sheet columns must match the field keys from your metaobject definition.
 
 | Column | Description | Required |
 |--------|-------------|----------|
-| handle | Unique handle for the metaobject | Yes |
-| type | Metaobject definition handle | No (uses config default) |
-| *field_name* | Any metaobject field | Depends on definition |
+| handle | Unique handle for the metaobject entry | Yes |
+| type | Metaobject definition handle (e.g., `brand_story`) | No (uses config default) |
+| *field_key* | Columns matching your metaobject field keys | Depends on definition |
 | shopify_id | Shopify metaobject ID (auto-filled) | No |
 
-**Example (for a "custom_content" definition with title and body fields):**
+**Example: FAQ Metaobject**
+
+First, create in Shopify a metaobject definition called `faq_item` with fields:
+- `question` (single_line_text)
+- `answer` (multi_line_text)
+- `category` (single_line_text)
+
+Then your sheet would be:
 ```
-handle,type,title,body,shopify_id
-homepage-banner,custom_content,Summer Sale!,Save up to 50% on summer items,
-about-us,custom_content,About Our Company,We've been making widgets since 1999,
-```
-
----
-
-### Discounts Sheet
-
-**Sheet Name:** `Discounts`
-
-| Column | Description | Required |
-|--------|-------------|----------|
-| code | Discount code | Yes |
-| title | Discount title | No |
-| type | `percentage` or `fixed` | Yes |
-| value | Discount value (e.g., 10 for 10% or 10.00 for $10) | Yes |
-| starts_at | Start date (ISO format) | Yes |
-| ends_at | End date (ISO format) | No |
-| shopify_id | Shopify discount ID (auto-filled) | No |
-
-**Example:**
-```
-code,title,type,value,starts_at,ends_at,shopify_id
-SUMMER20,Summer Sale,percentage,20,2026-06-01T00:00:00Z,2026-08-31T23:59:59Z,
-FLAT10,Flat $10 Off,fixed,10.00,2026-01-01T00:00:00Z,,
+handle,type,question,answer,category,shopify_id
+shipping-faq,faq_item,How long does shipping take?,Standard shipping is 5-7 business days.,Shipping,
+returns-faq,faq_item,What is your return policy?,30-day returns on all items.,Returns,
 ```
 
----
-
-### GiftCards Sheet
-
-**Sheet Name:** `GiftCards`
-
-| Column | Description | Required |
-|--------|-------------|----------|
-| code | Gift card code (optional - Shopify can generate) | No |
-| initial_value | Initial gift card value | Yes |
-| balance | Current balance (auto-updated from Shopify) | No |
-| note | Internal note | No |
-| shopify_id | Shopify gift card ID (auto-filled) | No |
-
-**Example:**
-```
-code,initial_value,balance,note,shopify_id
-GIFT-001,50.00,,Holiday promo,
-GIFT-002,100.00,,VIP customer,
+**Config setting:**
+```yaml
+metaobjects:
+  settings:
+    definitionHandle: "faq_item"  # Default type if not specified in sheet
 ```
 
 ---
@@ -196,24 +353,51 @@ GIFT-002,100.00,,VIP customer,
 
 This sheet is **read-only** - data flows FROM Shopify TO the sheet via webhooks.
 
+Switchboard writes customer data in Shopify export format for easy comparison and re-import.
+
 | Column | Description |
 |--------|-------------|
-| email | Customer email |
-| first_name | First name |
-| last_name | Last name |
-| phone | Phone number |
-| addresses | Formatted addresses |
-| shopify_id | Shopify customer GID |
+| Customer ID | Shopify customer ID (numeric) |
+| First Name | Customer first name |
+| Last Name | Customer last name |
+| Email | Customer email address |
+| Accepts Email Marketing | `yes` or `no` |
+| Default Address Company | Company name |
+| Default Address Address1 | Street address line 1 |
+| Default Address Address2 | Street address line 2 |
+| Default Address City | City |
+| Default Address Province Code | State/province code (e.g., ON, CA) |
+| Default Address Country Code | Country code (e.g., US, CA) |
+| Default Address Zip | Postal/ZIP code |
+| Default Address Phone | Address phone number |
+| Phone | Customer phone number |
+| Accepts SMS Marketing | `yes` or `no` |
+| Total Spent | Total amount spent |
+| Total Orders | Number of orders |
+| Note | Customer notes |
+| Tax Exempt | `yes` or `no` |
+| Tags | Customer tags |
+
+**Example:**
+```
+Customer ID,First Name,Last Name,Email,Accepts Email Marketing,Default Address Address1,Default Address City,Default Address Province Code,Default Address Country Code,Default Address Zip,Total Spent,Total Orders,Tags
+'9013808660771,Jamel,Crooks,jamel.crooks@example.com,no,88799 Roosevelt Shoal,Port Erin,,CA,T1H 2R5,997.98,1,VIP
+```
+
+Note: Customer ID is prefixed with `'` to prevent spreadsheet number formatting issues.
 
 ---
 
 ## Notes
 
 1. **Headers are case-insensitive** - `SKU`, `Sku`, and `sku` are all valid
-2. **Spaces in headers** are converted to underscores (e.g., "Product Type" → "product_type")
-3. **shopify_id columns** are automatically populated by Switchboard after successful sync
-4. **Empty rows** are skipped during sync
-5. **Duplicate SKUs** in the same sheet will use the last occurrence
+2. **Flexible column names** - Switchboard recognizes various column name formats:
+   - Shopify export names: `Body (HTML)`, `Option1 Value`, `On hand (new)`
+   - Simplified names: `description`, `option1_value`, `quantity`
+   - With/without underscores: `product_type` = `producttype`
+3. **Multi-variant products** use multiple rows with the same `Handle`
+4. **shopify_id columns** are automatically populated by Switchboard
+5. **Empty rows** are skipped during sync
 6. **Date formats** should be ISO 8601 (e.g., `2026-01-15T10:30:00Z`)
 
 ## Google Sheets Authentication

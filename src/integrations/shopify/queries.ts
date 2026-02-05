@@ -188,11 +188,14 @@ export async function getProductBySku(sku: string): Promise<ShopifyProduct | nul
 
 export async function createProduct(input: {
   title: string;
+  handle?: string;
   descriptionHtml?: string;
   vendor?: string;
   productType?: string;
   tags?: string[];
   status?: 'ACTIVE' | 'ARCHIVED' | 'DRAFT';
+  options?: string[];  // Option names like "Color", "Size"
+  images?: Array<{ src: string; altText?: string }>;
 }): Promise<ShopifyProduct> {
   const mutation = `
     mutation CreateProduct($input: ProductInput!) {
@@ -308,9 +311,14 @@ export async function updateProduct(
 export async function createProductVariant(
   productId: string,
   input: {
-    sku: string;
-    price: string;
+    sku?: string;
+    price?: string;
     title?: string;
+    options?: string[];
+    barcode?: string;
+    weight?: number;
+    weightUnit?: 'GRAMS' | 'KILOGRAMS' | 'OUNCES' | 'POUNDS';
+    compareAtPrice?: string;
   }
 ): Promise<ShopifyVariant> {
   const mutation = `
@@ -332,6 +340,29 @@ export async function createProductVariant(
     }
   `;
 
+  // Build variant input
+  const variantInput: {
+    sku?: string;
+    price?: string;
+    optionValues?: Array<{ optionName: string; name: string }>;
+    barcode?: string;
+    weight?: number;
+    weightUnit?: string;
+    compareAtPrice?: string;
+  } = {};
+
+  if (input.sku) variantInput.sku = input.sku;
+  if (input.price) variantInput.price = input.price;
+  if (input.barcode) variantInput.barcode = input.barcode;
+  if (input.weight !== undefined) variantInput.weight = input.weight;
+  if (input.weightUnit) variantInput.weightUnit = input.weightUnit;
+  if (input.compareAtPrice) variantInput.compareAtPrice = input.compareAtPrice;
+
+  // Note: For productVariantsBulkCreate, options are handled differently
+  // The variant options must match the product's option structure
+  // For simplicity, we'll use the optionValues format if options provided
+  // This requires knowing the option names from the product
+
   const data = await shopifyClient.graphql<{
     productVariantsBulkCreate: {
       productVariants: ShopifyVariant[] | null;
@@ -339,7 +370,7 @@ export async function createProductVariant(
     };
   }>(mutation, {
     productId,
-    variants: [input],
+    variants: [variantInput],
   });
 
   shopifyClient.checkUserErrors(data.productVariantsBulkCreate.userErrors, 'createProductVariant');
@@ -1046,7 +1077,9 @@ export async function createGiftCard(input: {
   initialValue: string;
   code?: string;
   note?: string;
-}): Promise<ShopifyGiftCard> {
+}): Promise<ShopifyGiftCard & { plaintextCode?: string }> {
+  // Note: giftCardCode returns the plaintext code ONLY at creation time
+  // After creation, only maskedCode is available
   const mutation = `
     mutation CreateGiftCard($input: GiftCardCreateInput!) {
       giftCardCreate(input: $input) {
@@ -1063,6 +1096,7 @@ export async function createGiftCard(input: {
           }
           enabled
         }
+        giftCardCode
         userErrors {
           field
           message
@@ -1080,6 +1114,7 @@ export async function createGiftCard(input: {
         balance: { amount: string; currencyCode: string };
         enabled: boolean;
       } | null;
+      giftCardCode: string | null;  // Full plaintext code, only available at creation
       userErrors: UserError[];
     };
   }>(mutation, {
@@ -1094,7 +1129,8 @@ export async function createGiftCard(input: {
   const gc = data.giftCardCreate.giftCard!;
   return {
     id: gc.id,
-    code: gc.maskedCode,
+    code: data.giftCardCreate.giftCardCode || gc.maskedCode, // Use plaintext if available
+    plaintextCode: data.giftCardCreate.giftCardCode || undefined, // Explicit plaintext for logging
     initialValue: gc.initialValue,
     balance: gc.balance,
     enabled: gc.enabled,
