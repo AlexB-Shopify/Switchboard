@@ -149,10 +149,21 @@ export class GoogleSheetsClient {
     const sheets = this.getClient();
     const spreadsheetId = this.getSpreadsheetId();
 
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: `'${sheetName}'`,
-    });
+    logger.debug(`Google Sheets: Reading all rows from '${sheetName}'`);
+    
+    let response;
+    try {
+      response = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `'${sheetName}'`,
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.debug(`Google Sheets: Error reading '${sheetName}': ${errorMessage}`);
+      throw error;
+    }
+    
+    logger.debug(`Google Sheets: Got ${response.data.values?.length || 0} rows from '${sheetName}'`);
 
     const rows = response.data.values || [];
     if (rows.length < 2) return []; // No data rows (only headers or empty)

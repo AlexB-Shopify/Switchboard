@@ -4,6 +4,7 @@
  */
 
 import { shopifyClient, type UserError, type Connection } from './client';
+import { logger } from '../../core/logger';
 
 // ============ Common Types ============
 
@@ -194,12 +195,15 @@ export async function createProduct(input: {
   productType?: string;
   tags?: string[];
   status?: 'ACTIVE' | 'ARCHIVED' | 'DRAFT';
-  options?: string[];  // Option names like "Color", "Size"
-  images?: Array<{ src: string; altText?: string }>;
+  options?: string[];  // Option names like "Color", "Size" - handled separately in 2026-01+
+  images?: Array<{ src: string; altText?: string }>;  // Handled separately via media API
 }): Promise<ShopifyProduct> {
+  // Extract options and images - they're handled separately in newer API versions
+  const { options, images, ...productInput } = input;
+  
   const mutation = `
-    mutation CreateProduct($input: ProductInput!) {
-      productCreate(input: $input) {
+    mutation CreateProduct($input: ProductInput!, $media: [CreateMediaInput!]) {
+      productCreate(input: $input, media: $media) {
         product {
           id
           title
@@ -239,12 +243,55 @@ export async function createProduct(input: {
     }
   `;
 
+  // Convert images to media input format for 2026-01 API
+  const media = images?.map(img => ({
+    originalSource: img.src,
+    alt: img.altText || '',
+    mediaContentType: 'IMAGE' as const,
+  }));
+
   const data = await shopifyClient.graphql<{
     productCreate: { product: ShopifyProduct | null; userErrors: UserError[] };
-  }>(mutation, { input });
+  }>(mutation, { 
+    input: productInput,
+    media: media && media.length > 0 ? media : undefined,
+  });
 
   shopifyClient.checkUserErrors(data.productCreate.userErrors, 'createProduct');
+  
+  // If options were provided, add them to the product
+  if (options && options.length > 0 && data.productCreate.product) {
+    await addProductOptions(data.productCreate.product.id, options);
+  }
+  
   return data.productCreate.product!;
+}
+
+/**
+ * Add options to a product (for 2026-01+ API)
+ */
+async function addProductOptions(productId: string, optionNames: string[]): Promise<void> {
+  const mutation = `
+    mutation ProductOptionsCreate($productId: ID!, $options: [OptionCreateInput!]!) {
+      productOptionsCreate(productId: $productId, options: $options) {
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const options = optionNames.map(name => ({
+    name,
+    values: [{ name: 'Default' }],  // Initial value, will be updated when variants are created
+  }));
+
+  const data = await shopifyClient.graphql<{
+    productOptionsCreate: { userErrors: UserError[] };
+  }>(mutation, { productId, options });
+
+  shopifyClient.checkUserErrors(data.productOptionsCreate.userErrors, 'addProductOptions');
 }
 
 export async function updateProduct(
@@ -314,9 +361,9 @@ export async function createProductVariant(
     sku?: string;
     price?: string;
     title?: string;
-    options?: string[];
+    optionValues?: Array<{ optionName: string; value: string }>;  // Option name + value pairs
     barcode?: string;
-    weight?: number;
+    weight?: number;  // Note: weight is set via inventoryItem in 2026-01+
     weightUnit?: 'GRAMS' | 'KILOGRAMS' | 'OUNCES' | 'POUNDS';
     compareAtPrice?: string;
   }
@@ -340,28 +387,29 @@ export async function createProductVariant(
     }
   `;
 
-  // Build variant input
+  // Build variant input - note: weight/weightUnit not supported in ProductVariantsBulkInput for 2026-01+
+  // Weight must be set via inventoryItem update separately
   const variantInput: {
     sku?: string;
     price?: string;
     optionValues?: Array<{ optionName: string; name: string }>;
     barcode?: string;
-    weight?: number;
-    weightUnit?: string;
     compareAtPrice?: string;
   } = {};
 
   if (input.sku) variantInput.sku = input.sku;
   if (input.price) variantInput.price = input.price;
   if (input.barcode) variantInput.barcode = input.barcode;
-  if (input.weight !== undefined) variantInput.weight = input.weight;
-  if (input.weightUnit) variantInput.weightUnit = input.weightUnit;
   if (input.compareAtPrice) variantInput.compareAtPrice = input.compareAtPrice;
 
-  // Note: For productVariantsBulkCreate, options are handled differently
-  // The variant options must match the product's option structure
-  // For simplicity, we'll use the optionValues format if options provided
-  // This requires knowing the option names from the product
+  // Build optionValues array for 2026-01 API
+  // Format: [{ optionName: "Color", name: "Cherry" }]
+  if (input.optionValues && input.optionValues.length > 0) {
+    variantInput.optionValues = input.optionValues.map(ov => ({
+      optionName: ov.optionName,
+      name: ov.value,
+    }));
+  }
 
   const data = await shopifyClient.graphql<{
     productVariantsBulkCreate: {
@@ -425,11 +473,106 @@ export async function getInventoryLevels(locationId: string, first: number = 50)
   };
 }
 
+/**
+ * Enable inventory tracking for an inventory item
+ */
+export async function enableInventoryTracking(
+  inventoryItemId: string,
+  locationId: string
+): Promise<void> {
+  // First, enable tracking on the inventory item
+  const updateMutation = `
+    mutation EnableTracking($id: ID!, $input: InventoryItemInput!) {
+      inventoryItemUpdate(id: $id, input: $input) {
+        inventoryItem {
+          id
+          tracked
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const updateData = await shopifyClient.graphql<{
+    inventoryItemUpdate: {
+      inventoryItem: { id: string; tracked: boolean } | null;
+      userErrors: UserError[];
+    };
+  }>(updateMutation, {
+    id: inventoryItemId,
+    input: {
+      tracked: true,
+    },
+  });
+
+  shopifyClient.checkUserErrors(updateData.inventoryItemUpdate.userErrors, 'enableInventoryTracking');
+
+  // Then, activate the inventory level at the location
+  const activateMutation = `
+    mutation ActivateInventory($inventoryItemId: ID!, $locationId: ID!) {
+      inventoryActivate(inventoryItemId: $inventoryItemId, locationId: $locationId) {
+        inventoryLevel {
+          id
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  try {
+    const activateData = await shopifyClient.graphql<{
+      inventoryActivate: {
+        inventoryLevel: { id: string } | null;
+        userErrors: UserError[];
+      };
+    }>(activateMutation, {
+      inventoryItemId,
+      locationId,
+    });
+
+    // Don't throw on activation errors - might already be activated
+    if (activateData.inventoryActivate.userErrors.length > 0) {
+      const errors = activateData.inventoryActivate.userErrors;
+      // Ignore "already stocked" errors
+      const realErrors = errors.filter(e => !e.message.includes('already stocked'));
+      if (realErrors.length > 0) {
+        shopifyClient.checkUserErrors(realErrors, 'activateInventory');
+      }
+    }
+  } catch (error) {
+    // Inventory might already be activated - that's okay
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (!errorMessage.includes('already')) {
+      throw error;
+    }
+  }
+}
+
 export async function setInventoryQuantity(
   inventoryItemId: string,
   locationId: string,
-  quantity: number
+  quantity: number,
+  ensureTracked: boolean = true
 ): Promise<void> {
+  // Optionally ensure inventory tracking is enabled first
+  if (ensureTracked) {
+    try {
+      await enableInventoryTracking(inventoryItemId, locationId);
+    } catch (error) {
+      // Log but continue - tracking might already be enabled
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (!errorMessage.includes('already')) {
+        console.warn(`Warning: Could not enable tracking for ${inventoryItemId}: ${errorMessage}`);
+      }
+    }
+  }
+
   const mutation = `
     mutation SetInventoryQuantity($input: InventorySetOnHandQuantitiesInput!) {
       inventorySetOnHandQuantities(input: $input) {
@@ -461,6 +604,14 @@ export async function setInventoryQuantity(
       ],
     },
   });
+
+  // Log response for debugging
+  if (data.inventorySetOnHandQuantities.userErrors.length > 0) {
+    logger.debug(`SetInventoryQuantity userErrors: ${JSON.stringify(data.inventorySetOnHandQuantities.userErrors)}`);
+  }
+  if (!data.inventorySetOnHandQuantities.inventoryAdjustmentGroup) {
+    logger.debug(`SetInventoryQuantity: No adjustment group returned for ${inventoryItemId}`);
+  }
 
   shopifyClient.checkUserErrors(data.inventorySetOnHandQuantities.userErrors, 'setInventoryQuantity');
 }

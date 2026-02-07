@@ -4,6 +4,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
+import { execSync } from 'child_process';
 import type { DataObjectName } from '../config';
 
 // Singleton Prisma client instance
@@ -22,11 +23,52 @@ export function getDb(): PrismaClient {
 }
 
 /**
+ * Initialize the database schema using Prisma
+ */
+function initializeDatabase(): void {
+  console.log('Database not found or not initialized. Running prisma db push...');
+  try {
+    // Run prisma db push to create the database and schema
+    execSync('npx prisma db push --skip-generate', {
+      stdio: 'inherit',
+      cwd: process.cwd(),
+    });
+    console.log('Database initialized successfully.');
+  } catch (error) {
+    throw new Error(`Failed to initialize database: ${error}`);
+  }
+}
+
+/**
  * Initialize the database connection
  */
 export async function initDb(): Promise<void> {
   const db = getDb();
-  await db.$connect();
+  
+  try {
+    // Try to connect and run a simple query to verify the database is set up
+    await db.$connect();
+    // Test query to ensure tables exist
+    await db.$queryRaw`SELECT 1`;
+  } catch (error) {
+    // If connection fails, try to initialize the database
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    if (errorMessage.includes('Unable to open') || 
+        errorMessage.includes('no such table') ||
+        errorMessage.includes('does not exist')) {
+      // Database doesn't exist or isn't initialized - create it
+      initializeDatabase();
+      
+      // Recreate the Prisma client after db push
+      prisma = null;
+      const newDb = getDb();
+      await newDb.$connect();
+    } else {
+      // Some other error - rethrow
+      throw error;
+    }
+  }
 }
 
 /**
@@ -68,15 +110,12 @@ export interface SyncStateData {
 export async function getSyncState(dataObject: DataObjectName): Promise<SyncStateData> {
   const db = getDb();
   
-  let state = await db.syncState.findUnique({
+  // Use upsert to avoid race conditions when multiple jobs start simultaneously
+  const state = await db.syncState.upsert({
     where: { dataObject },
+    create: { dataObject },
+    update: {}, // No updates, just return existing
   });
-
-  if (!state) {
-    state = await db.syncState.create({
-      data: { dataObject },
-    });
-  }
 
   return {
     lastSyncAt: state.lastSyncAt,

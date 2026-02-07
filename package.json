@@ -10,9 +10,9 @@
     "switchboard": "dist/index.js"
   },
   "scripts": {
-    "start": "ts-node src/index.ts",
-    "start:demo": "ts-node src/index.ts --demo",
-    "start:prod": "ts-node src/index.ts --production",
+    "start": "ts-node src/index.ts start",
+    "start:demo": "ts-node src/index.ts start --demo",
+    "start:prod": "ts-node src/index.ts start --production",
     "build": "tsc",
     "dev": "ts-node-dev --respawn src/index.ts",
     "db:generate": "prisma generate",

@@ -100,6 +100,23 @@ export class ShopifyClient {
 
     const config = configManager.get();
     logger.debug('Refreshing Shopify access token');
+    logger.debug(`Token URL: ${this.tokenUrl}`);
+    logger.debug(`Client ID: ${config.shopify.clientId.substring(0, 8)}...`);
+
+    // Request all necessary scopes explicitly
+    const requestedScopes = [
+      'read_products', 'write_products',
+      'read_inventory', 'write_inventory',
+      'read_orders', 'write_orders',
+      'read_fulfillments', 'write_fulfillments',
+      'read_customers', 'write_customers',
+      'read_metaobjects', 'write_metaobjects',
+      'read_discounts', 'write_discounts',
+      'read_price_rules', 'write_price_rules',
+      'read_gift_cards', 'write_gift_cards',
+      'read_locations', 'write_locations',
+      'read_markets', 'write_markets',
+    ].join(' ');
 
     const response = await fetch(this.tokenUrl, {
       method: 'POST',
@@ -110,6 +127,7 @@ export class ShopifyClient {
         grant_type: 'client_credentials',
         client_id: config.shopify.clientId,
         client_secret: config.shopify.clientSecret,
+        scope: requestedScopes,
       }),
     });
 
@@ -126,6 +144,7 @@ export class ShopifyClient {
     this.tokenExpiresAt = new Date(Date.now() + expiresIn * 1000);
 
     logger.debug(`Token acquired, expires at ${this.tokenExpiresAt.toISOString()}`);
+    logger.debug(`Token scopes: ${data.scope || 'none returned'}`);
     return this.accessToken;
   }
 
@@ -151,21 +170,39 @@ export class ShopifyClient {
       payload.variables = variables;
     }
 
+    // Extract operation name for logging
+    const operationMatch = query.match(/(?:query|mutation)\s+(\w+)/);
+    const operationName = operationMatch ? operationMatch[1] : 'unknown';
+    
+    logger.debug(`GraphQL ${operationName}: Making request to ${this.graphqlUrl}`);
+
     const response = await fetch(this.graphqlUrl, {
       method: 'POST',
       headers: await this.getHeaders(),
       body: JSON.stringify(payload),
     });
 
+    const responseText = await response.text();
+    
+    logger.debug(`GraphQL ${operationName}: HTTP ${response.status}`);
+    
     if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`GraphQL request failed: ${response.status}\nResponse: ${text}`);
+      logger.debug(`GraphQL ${operationName}: Response headers: ${JSON.stringify(Object.fromEntries(response.headers.entries()))}`);
+      logger.debug(`GraphQL ${operationName}: Response body: ${responseText}`);
+      throw new Error(`GraphQL request failed: ${response.status}\nResponse: ${responseText}`);
     }
 
-    const result = await response.json() as GraphQLResponse<T>;
+    let result: GraphQLResponse<T>;
+    try {
+      result = JSON.parse(responseText) as GraphQLResponse<T>;
+    } catch (e) {
+      logger.debug(`GraphQL ${operationName}: Failed to parse response: ${responseText}`);
+      throw new Error(`Failed to parse GraphQL response: ${responseText}`);
+    }
 
     if (result.errors && result.errors.length > 0) {
       const errorMessages = result.errors.map(e => e.message).join(', ');
+      logger.debug(`GraphQL ${operationName}: Errors: ${JSON.stringify(result.errors, null, 2)}`);
       throw new Error(`GraphQL errors: ${errorMessages}`);
     }
 

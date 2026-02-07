@@ -116,8 +116,15 @@ export class InventoryHandler extends BaseHandler {
     const sheetName = this.config.sheetName;
     const rows = await sheetsClient.readAll(sheetName);
 
-    return rows.map(row => {
+    return rows.map((row, idx) => {
       const v = row.values;
+      
+      // Debug: log first few rows to see what columns we're getting
+      if (idx < 3) {
+        this.log.debug(`Row ${idx} columns: ${Object.keys(v).join(', ')}`);
+        this.log.debug(`Row ${idx} quantity fields: "On hand (new)"="${v['On hand (new)']}", quantity="${v['quantity']}"`);
+      }
+      
       return {
         // Handle - primary identifier in Shopify exports
         handle: getColumn(v, 'handle', 'Handle'),
@@ -138,9 +145,24 @@ export class InventoryHandler extends BaseHandler {
         location: getColumn(v, 'location', 'Location'),
         bin_name: getColumn(v, 'bin_name', 'Bin name', 'Bin Name'),
         
-        // Quantities - "On hand (new)" is the editable field, others are read-only
-        quantity: getColumn(v, 'quantity', 'On hand (new)', 'onhandnew') || 
-                  getColumn(v, 'on_hand', 'on hand', 'available') || '0',
+        // Quantities - prefer explicit "quantity" or filled-in "On hand (new)", 
+        // but fall back to "available" if those are empty/zero
+        quantity: (() => {
+          // First try explicit quantity column (ERP format)
+          const explicit = getColumn(v, 'quantity');
+          if (explicit && explicit !== '0') return explicit;
+          
+          // Then try "On hand (new)" - the Shopify import column
+          const onHandNew = getColumn(v, 'On hand (new)', 'onhandnew');
+          if (onHandNew && onHandNew !== '0') return onHandNew;
+          
+          // Fall back to available inventory (current stock)
+          const available = getColumn(v, 'available', 'Available', 'on_hand', 'on hand');
+          if (available) return available;
+          
+          // Last resort - use the "On hand (new)" even if 0
+          return onHandNew || '0';
+        })(),
         on_hand_current: getColumn(v, 'on_hand_current', 'On hand (current)', 'onhandcurrent'),
         available: getColumn(v, 'available', 'Available (not editable)', 'availablenoteditable'),
         committed: getColumn(v, 'committed', 'Committed (not editable)', 'committednoteditable'),
@@ -165,6 +187,7 @@ export class InventoryHandler extends BaseHandler {
     this.locationCache.clear();
     for (const loc of locations) {
       this.locationCache.set(loc.name.toLowerCase(), loc.id);
+      this.log.debug(`Location: "${loc.name}" -> ${loc.id} (active: ${loc.isActive})`);
       if (loc.isActive && !this.primaryLocationId) {
         this.primaryLocationId = loc.id;
       }
@@ -174,7 +197,7 @@ export class InventoryHandler extends BaseHandler {
       this.primaryLocationId = locations[0].id;
     }
 
-    this.log.debug(`Loaded ${locations.length} locations`);
+    this.log.debug(`Loaded ${locations.length} locations, primary: ${this.primaryLocationId}`);
   }
 
   /**
@@ -302,6 +325,12 @@ export class InventoryHandler extends BaseHandler {
     try {
       const locationId = this.getLocationId(location);
       const qty = parseInt(quantity, 10) || 0;
+
+      this.log.debug(`Inventory update: ${identifier} -> location="${location || '(default)'}" (${locationId}), qty=${qty} (raw: "${quantity}")`);
+      
+      if (qty === 0 && quantity !== '0' && quantity !== '') {
+        this.log.warn(`Warning: quantity "${quantity}" parsed to 0 - check column format`);
+      }
 
       await setInventoryQuantity(
         inventoryInfo.inventoryItemId,

@@ -59,19 +59,30 @@ export interface SyncStats {
 export abstract class BaseHandler {
   protected readonly name: DataObjectName;
   protected readonly log: ChildLogger;
-  protected config: DataObjectConfig;
+  private _config: DataObjectConfig | null = null;
 
   constructor(name: DataObjectName) {
     this.name = name;
     this.log = logger.child({ dataObject: name });
-    this.config = configManager.getDataObject(name);
+    // Note: config is loaded lazily to avoid initialization order issues
+    // The config will be loaded when first accessed via the getter
+  }
+
+  /**
+   * Get the config for this data object (lazy-loaded)
+   */
+  protected get config(): DataObjectConfig {
+    if (!this._config) {
+      this._config = configManager.getDataObject(this.name);
+    }
+    return this._config;
   }
 
   /**
    * Refresh config (useful if config changes at runtime)
    */
   protected refreshConfig(): void {
-    this.config = configManager.getDataObject(this.name);
+    this._config = configManager.getDataObject(this.name);
   }
 
   /**

@@ -281,14 +281,11 @@ export class ProductsHandler extends ToShopifyHandler {
       for (let i = 0; i < groupedProduct.variants.length; i++) {
         const variantRow = groupedProduct.variants[i];
         
-        // Build option values
-        const optionValues: string[] = [];
-        if (variantRow.option1_value) optionValues.push(variantRow.option1_value);
-        if (variantRow.option2_value) optionValues.push(variantRow.option2_value);
-        if (variantRow.option3_value) optionValues.push(variantRow.option3_value);
+        // Check if this variant has option values
+        const hasOptions = variantRow.option1_value || variantRow.option2_value || variantRow.option3_value;
 
         // Skip if this is just a "Default Title" single variant and it's the first one
-        if (i === 0 && optionValues.length === 0 && groupedProduct.variants.length === 1) {
+        if (i === 0 && !hasOptions && groupedProduct.variants.length === 1) {
           // Just update the default variant with SKU/price
           const defaultVariant = product.variants.edges[0]?.node;
           if (defaultVariant && (variantRow.sku || variantRow.price)) {
@@ -298,13 +295,32 @@ export class ProductsHandler extends ToShopifyHandler {
         }
 
         try {
+          // Build option values with their names for 2026-01 API
+          const optionValuesWithNames: Array<{ optionName: string; value: string }> = [];
+          if (variantRow.option1_value && groupedProduct.option1_name) {
+            optionValuesWithNames.push({ 
+              optionName: groupedProduct.option1_name, 
+              value: variantRow.option1_value 
+            });
+          }
+          if (variantRow.option2_value && groupedProduct.option2_name) {
+            optionValuesWithNames.push({ 
+              optionName: groupedProduct.option2_name, 
+              value: variantRow.option2_value 
+            });
+          }
+          if (variantRow.option3_value && groupedProduct.option3_name) {
+            optionValuesWithNames.push({ 
+              optionName: groupedProduct.option3_name, 
+              value: variantRow.option3_value 
+            });
+          }
+
           await createProductVariant(product.id, {
             sku: variantRow.sku || '',
             price: variantRow.price || '0.00',
-            options: optionValues.length > 0 ? optionValues : undefined,
+            optionValues: optionValuesWithNames.length > 0 ? optionValuesWithNames : undefined,
             barcode: variantRow.barcode || undefined,
-            weight: variantRow.weight ? parseFloat(variantRow.weight) : undefined,
-            weightUnit: (variantRow.weight_unit?.toUpperCase() || 'GRAMS') as 'GRAMS' | 'KILOGRAMS' | 'OUNCES' | 'POUNDS',
           });
         } catch (error) {
           // Variant might already exist, log and continue
